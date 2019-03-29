@@ -65,6 +65,9 @@ const (
 var (
 	masterURL  string
 	kubeconfig string
+	namespace  string
+
+	defaultSyncDuration = time.Second * 30
 
 	descVerticalPodAutoscalerLabelsName          = "kube_vpa_labels"
 	descVerticalPodAutoscalerLabelsHelp          = "Kubernetes labels converted to Prometheus labels."
@@ -383,7 +386,7 @@ func setupSignalHandler() (stopCh <-chan struct{}) {
 
 func main() {
 	flag.Parse()
-
+	var informerFactory informerfactory.SharedInformerFactory
 	// set up signals so we handle the first shutdown signal gracefully
 	stopCh := setupSignalHandler()
 
@@ -397,7 +400,11 @@ func main() {
 		klog.Fatalf("Error building example clientset: %s", err.Error())
 	}
 
-	informerFactory := informerfactory.NewSharedInformerFactory(client, time.Second*30)
+	if len(namespace) == 0 {
+		informerFactory = informerfactory.NewSharedInformerFactory(client, defaultSyncDuration)
+	} else {
+		informerFactory = informerfactory.NewFilteredSharedInformerFactory(client, defaultSyncDuration, namespace, nil)
+	}
 
 	controller := NewController(client, informerFactory.Autoscaling().V1beta2().VerticalPodAutoscalers())
 
@@ -420,4 +427,5 @@ func serveMetrics() error {
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&namespace, "namespace", "", "Namespace in which the VPA resources have to be listened to.")
 }
