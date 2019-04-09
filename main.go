@@ -56,7 +56,7 @@ const (
 	maxAllowed                       = "max"
 	targetRecommendation             = "target"
 	lowerBoundRecommendation         = "lowerBound"
-	upperBoundRecommendation         = "lowerBound"
+	upperBoundRecommendation         = "upperBound"
 	uncappedTargetRecommendation     = "uncappedTarget"
 	vpaNamespace                     = "vpa"
 	subsystemMetadata                = "metadata"
