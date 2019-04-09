@@ -66,6 +66,7 @@ var (
 	masterURL  string
 	kubeconfig string
 	namespace  string
+	port       int
 
 	defaultSyncDuration = time.Second * 30
 
@@ -339,7 +340,13 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 			if vpa.Spec.UpdatePolicy != nil && vpa.Spec.UpdatePolicy.UpdateMode != nil {
 				labels[labelUpdatePolicy] = string(*vpa.Spec.UpdatePolicy.UpdateMode)
 			}
-			vpaStatusRecommendation.With(labels).Set(float64(q.Value()))
+
+			// CPU metrics must be exposed as millicores
+			if resource == "cpu" {
+				vpaStatusRecommendation.With(labels).Set(float64(q.MilliValue()))
+			} else {
+				vpaStatusRecommendation.With(labels).Set(float64(q.Value()))
+			}
 		}
 
 		for _, cr := range vpa.Status.Recommendation.ContainerRecommendations {
@@ -421,11 +428,12 @@ func main() {
 
 func serveMetrics() error {
 	http.Handle("/metrics", promhttp.Handler())
-	return http.ListenAndServe(":80", nil)
+	return http.ListenAndServe(fmt.Sprintf("%s%d", ":", port), nil)
 }
 
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&namespace, "namespace", "", "Namespace in which the VPA resources have to be listened to.")
+	flag.IntVar(&port, "port", 80, "The port on which prometheus metrics are exposed.")
 }
