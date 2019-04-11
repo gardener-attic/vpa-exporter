@@ -60,6 +60,8 @@ const (
 	uncappedTargetRecommendation     = "uncappedTarget"
 	vpaNamespace                     = "vpa"
 	subsystemMetadata                = "metadata"
+	subsystemSpec                    = "spec"
+	subsystemStatus                  = "status"
 )
 
 var (
@@ -77,7 +79,7 @@ var (
 		prometheus.GaugeOpts{
 			Namespace: vpaNamespace,
 			Subsystem: subsystemMetadata,
-			Name:      "kube_vpa_metadata_generation",
+			Name:      "generation",
 			Help:      "The generation observed by the VerticalPodAutoscaler controller.",
 		},
 		[]string{labelKind, labelName, labelNamespace},
@@ -86,8 +88,8 @@ var (
 	vpaSpecContainerResourcePolicyAllowed = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: vpaNamespace,
-			Subsystem: subsystemMetadata,
-			Name:      "kube_vpa_spec_container_resource_policy_allowed",
+			Subsystem: subsystemSpec,
+			Name:      "container_resource_policy_allowed",
 			Help:      "The container resource allowed mentioned in the resouce policy in the VerticalPodAutoscaler spec.",
 		},
 		[]string{labelKind, labelName, labelNamespace, labelContainer, labelAllowed, labelResource, labelUpdatePolicy},
@@ -96,8 +98,8 @@ var (
 	vpaStatusRecommendation = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: vpaNamespace,
-			Subsystem: subsystemMetadata,
-			Name:      "kube_vpa_status_recommendation",
+			Subsystem: subsystemStatus,
+			Name:      "recommendation",
 			Help:      "The resource recommendation for a container in the VerticalPodAutoscaler status.",
 		},
 		[]string{labelKind, labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy},
