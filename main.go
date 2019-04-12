@@ -83,7 +83,7 @@ var (
 			Name:      "generation",
 			Help:      "The generation observed by the VerticalPodAutoscaler controller.",
 		},
-		[]string{labelKind, labelName, labelNamespace},
+		[]string{labelName, labelNamespace},
 	)
 
 	vpaSpecContainerResourcePolicyAllowed = prometheus.NewGaugeVec(
@@ -93,7 +93,7 @@ var (
 			Name:      "container_resource_policy_allowed",
 			Help:      "The container resource allowed mentioned in the resouce policy in the VerticalPodAutoscaler spec.",
 		},
-		[]string{labelKind, labelName, labelNamespace, labelContainer, labelAllowed, labelResource, labelUpdatePolicy},
+		[]string{labelName, labelNamespace, labelContainer, labelAllowed, labelResource, labelUpdatePolicy},
 	)
 
 	vpaStatusRecommendation = prometheus.NewGaugeVec(
@@ -103,7 +103,7 @@ var (
 			Name:      "recommendation",
 			Help:      "The resource recommendation for a container in the VerticalPodAutoscaler status.",
 		},
-		[]string{labelKind, labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy},
+		[]string{labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy},
 	)
 )
 
@@ -174,7 +174,7 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	}
 
 	klog.Info("Starting workers")
-	// Launch two workers to process Foo resources
+	// Launch workers to process VPA resources
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -228,7 +228,7 @@ func (c *Controller) processNextWorkItem() bool {
 			return nil
 		}
 		// Run the syncHandler, passing it the namespace/name string of the
-		// Foo resource to be synced.
+		// VPA resource to be synced.
 		if err := c.syncHandler(key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			c.workqueue.AddRateLimited(key)
@@ -250,7 +250,7 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
+// converge the two. It then updates the Status block of the VPA resource
 // with the current status of the resource.
 func (c *Controller) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
@@ -266,7 +266,7 @@ func (c *Controller) syncHandler(key string) error {
 		// The VPA resource may no longer exist, in which case we stop
 		// processing.
 		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
+			utilruntime.HandleError(fmt.Errorf("vpa '%s' in work queue no longer exists", key))
 			return nil
 		}
 
@@ -297,7 +297,6 @@ func (c *Controller) enqueueVPA(obj interface{}) {
 
 func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) error {
 	vpaMetadataGeneration.With(prometheus.Labels{
-		labelKind:      vpa.TypeMeta.Kind,
 		labelNamespace: vpa.ObjectMeta.Namespace,
 		labelName:      vpa.ObjectMeta.Name,
 	}).Set(float64(vpa.ObjectMeta.Generation))
@@ -305,7 +304,6 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 	if vpa.Spec.ResourcePolicy != nil {
 		addAllowed := func(containerName, allowed, resource string, q resource.Quantity) {
 			labels := prometheus.Labels{
-				labelKind:      vpa.TypeMeta.Kind,
 				labelNamespace: vpa.ObjectMeta.Namespace,
 				labelName:      vpa.ObjectMeta.Name,
 				labelContainer: containerName,
@@ -332,7 +330,6 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 	if vpa.Status.Recommendation != nil {
 		addReco := func(containerName, recommendation, resource string, q resource.Quantity) {
 			labels := prometheus.Labels{
-				labelKind:           vpa.TypeMeta.Kind,
 				labelNamespace:      vpa.ObjectMeta.Namespace,
 				labelName:           vpa.ObjectMeta.Name,
 				labelContainer:      containerName,
