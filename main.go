@@ -41,7 +41,6 @@ import (
 )
 
 const (
-	labelKind                        = "kind"
 	labelName                        = "name"
 	labelNamespace                   = "namespace"
 	labelContainer                   = "container"
@@ -62,6 +61,8 @@ const (
 	subsystemMetadata                = "metadata"
 	subsystemSpec                    = "spec"
 	subsystemStatus                  = "status"
+	labelTargetRefName               = "targetName"
+	labelTargetRefKind               = "targetKind"
 )
 
 var (
@@ -93,7 +94,7 @@ var (
 			Name:      "container_resource_policy_allowed",
 			Help:      "The container resource allowed mentioned in the resouce policy in the VerticalPodAutoscaler spec.",
 		},
-		[]string{labelName, labelNamespace, labelContainer, labelAllowed, labelResource, labelUpdatePolicy},
+		[]string{labelName, labelNamespace, labelContainer, labelAllowed, labelResource, labelUpdatePolicy, labelTargetRefName, labelTargetRefKind},
 	)
 
 	vpaStatusRecommendation = prometheus.NewGaugeVec(
@@ -103,7 +104,7 @@ var (
 			Name:      "recommendation",
 			Help:      "The resource recommendation for a container in the VerticalPodAutoscaler status.",
 		},
-		[]string{labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy},
+		[]string{labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy, labelTargetRefName, labelTargetRefKind},
 	)
 )
 
@@ -304,11 +305,13 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 	if vpa.Spec.ResourcePolicy != nil {
 		addAllowed := func(containerName, allowed, resource string, q resource.Quantity) {
 			labels := prometheus.Labels{
-				labelNamespace: vpa.ObjectMeta.Namespace,
-				labelName:      vpa.ObjectMeta.Name,
-				labelContainer: containerName,
-				labelAllowed:   allowed,
-				labelResource:  resource,
+				labelNamespace:     vpa.ObjectMeta.Namespace,
+				labelName:          vpa.ObjectMeta.Name,
+				labelContainer:     containerName,
+				labelAllowed:       allowed,
+				labelResource:      resource,
+				labelTargetRefName: vpa.Spec.TargetRef.Name,
+				labelTargetRefKind: vpa.Spec.TargetRef.Kind,
 			}
 			if vpa.Spec.UpdatePolicy != nil && vpa.Spec.UpdatePolicy.UpdateMode != nil {
 				labels[labelUpdatePolicy] = string(*vpa.Spec.UpdatePolicy.UpdateMode)
@@ -335,6 +338,8 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 				labelContainer:      containerName,
 				labelRecommendation: recommendation,
 				labelResource:       resource,
+				labelTargetRefName:  vpa.Spec.TargetRef.Name,
+				labelTargetRefKind:  vpa.Spec.TargetRef.Kind,
 			}
 			if vpa.Spec.UpdatePolicy != nil && vpa.Spec.UpdatePolicy.UpdateMode != nil {
 				labels[labelUpdatePolicy] = string(*vpa.Spec.UpdatePolicy.UpdateMode)
