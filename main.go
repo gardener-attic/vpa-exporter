@@ -302,6 +302,11 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 		labelName:      vpa.ObjectMeta.Name,
 	}).Set(float64(vpa.ObjectMeta.Generation))
 
+	if vpa.Spec.TargetRef == nil {
+		klog.Warningf("Skipping VerticalPodAutoscaler without targetRef %s/%s.", vpa.Namespace, vpa.Name)
+		return nil
+	}
+
 	if vpa.Spec.ResourcePolicy != nil {
 		addAllowed := func(containerName, allowed, resource string, q resource.Quantity) {
 			labels := prometheus.Labels{
