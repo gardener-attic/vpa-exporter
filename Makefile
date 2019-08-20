@@ -45,3 +45,14 @@ docker-push:
 clean:
 	@rm -rf $(BIN_DIR)/
 
+.PHONY: check
+check:
+	@.ci/check
+
+.PHONY: test
+test:
+	@.ci/test
+
+.PHONY: verify
+verify: check test
+
