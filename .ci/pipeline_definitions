@@ -40,3 +40,14 @@ vpa-exporter:
         release:
           nextversion: 'bump_minor'
         component_descriptor: ~
+
+  release:
+    traits:
+      publish:
+        container_images:
+          vpa-exporter:
+            resource_labels:
+              - name: 'cloud.gardener.cnudie/dso/scanning-hints/binary/v1'
+                value:
+                  policy: 'skip' # this will tell our scanning-gear that the image should not be scanned using protecode
+                  comment: 'payload is a statically-linked elf-binary'
