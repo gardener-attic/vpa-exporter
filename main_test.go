@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -92,6 +94,7 @@ func resetMetrics(gatherer bool) {
 	vpaMetadataGeneration.Reset()
 	vpaSpecContainerResourcePolicyAllowed.Reset()
 	vpaStatusRecommendation.Reset()
+	vpaGardenerRecommendation.Reset()
 
 	if gatherer {
 		mfs, _ := prometheus.DefaultGatherer.Gather()
@@ -257,17 +260,17 @@ func specContainerResourcePolicyAllowedMetricFamily(vs ...*vpa.VerticalPodAutosc
 	return
 }
 
-func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *dto.MetricFamily, invalid *dto.MetricFamily) {
+func statusMetricFamilyHelper(metric string, getStatusFn func(vpa *vpa.VerticalPodAutoscaler) *vpa.VerticalPodAutoscalerStatus, vs []*vpa.VerticalPodAutoscaler) (valid *dto.MetricFamily, invalid *dto.MetricFamily) {
 	if len(vs) < 1 {
 		return
 	}
 
 	valid = &dto.MetricFamily{
-		Name: stringPtr(prometheus.BuildFQName(vpaNamespace, subsystemStatus, "recommendation")),
+		Name: stringPtr(prometheus.BuildFQName(metric, subsystemStatus, "recommendation")),
 		Type: metricType(dto.MetricType_GAUGE),
 	}
 	invalid = &dto.MetricFamily{
-		Name: stringPtr(prometheus.BuildFQName(vpaNamespace, subsystemStatus, "recommendation")),
+		Name: stringPtr(prometheus.BuildFQName(metric, subsystemStatus, "recommendation")),
 		Type: metricType(dto.MetricType_GAUGE),
 	}
 
@@ -301,14 +304,26 @@ func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *
 			Name:  stringPtr(labelTargetRefName),
 			Value: stringPtr(targetRefName),
 		}
+		lpUpdatePolicy := &dto.LabelPair{
+			Name: stringPtr(labelUpdatePolicy),
+			Value: stringPtr((func() string {
+				if v.Spec.UpdatePolicy != nil && v.Spec.UpdatePolicy.UpdateMode != nil {
+					return string(*v.Spec.UpdatePolicy.UpdateMode)
+				} else {
+					return string(vpa.UpdateModeAuto)
+				}
+			})()),
+		}
 
-		if v.Status.Recommendation == nil || v.Status.Recommendation.ContainerRecommendations == nil {
+		status := getStatusFn(v)
+		if status.Recommendation == nil || status.Recommendation.ContainerRecommendations == nil {
 			m := &dto.Metric{
 				Label: []*dto.LabelPair{
 					lpName,
 					lpNamespace,
 					lpTargetRefKind,
 					lpTargetRefName,
+					lpUpdatePolicy,
 				},
 			}
 			invalid.Metric = append(invalid.Metric, m)
@@ -323,8 +338,8 @@ func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *
 			mfPtr = &valid
 		}
 
-		for i := range v.Status.Recommendation.ContainerRecommendations {
-			cr := &v.Status.Recommendation.ContainerRecommendations[i]
+		for i := range status.Recommendation.ContainerRecommendations {
+			cr := &status.Recommendation.ContainerRecommendations[i]
 			lpContainer := &dto.LabelPair{
 				Name:  stringPtr(labelContainer),
 				Value: stringPtr(cr.ContainerName),
@@ -350,6 +365,7 @@ func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *
 							},
 							lpTargetRefKind,
 							lpTargetRefName,
+							lpUpdatePolicy,
 						},
 					}
 					if k == corev1.ResourceCPU {
@@ -376,6 +392,30 @@ func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *
 		}
 	}
 	return
+}
+
+func statusAnnotationsRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *dto.MetricFamily, invalid *dto.MetricFamily) {
+	return statusMetricFamilyHelper(gardener_vpa, func(v *vpa.VerticalPodAutoscaler) *vpa.VerticalPodAutoscalerStatus {
+		gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{}
+		gardenerVPAStatusJSON, hasGardenerVPAStatusJSON := v.ObjectMeta.Annotations[gardenerVPARecommendationAnnnotationKey]
+		if hasGardenerVPAStatusJSON && gardenerVPAStatusJSON != "" {
+			gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{}
+			err := json.Unmarshal([]byte(gardenerVPAStatusJSON), gardenerVPAStatus)
+			if err != nil {
+				fmt.Println("error in unmarshalling gardenerVPAStatus")
+				return nil
+			}
+			return gardenerVPAStatus
+		}
+		return gardenerVPAStatus
+	}, vs)
+}
+
+func statusRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *dto.MetricFamily, invalid *dto.MetricFamily) {
+
+	return statusMetricFamilyHelper(vpaNamespace, func(vpa *vpa.VerticalPodAutoscaler) *vpa.VerticalPodAutoscalerStatus {
+		return &vpa.Status
+	}, vs)
 }
 
 func matchLabels(expect []*dto.LabelPair, actual []*dto.LabelPair) bool {
@@ -508,6 +548,10 @@ func computeExpectedMetricFamilies(vs ...*vpa.VerticalPodAutoscaler) (valid map[
 		vmfs, ivmfs = statusRecommendationMetricFamily(v)
 		mergeMetricFamily(valid, vmfs)
 		mergeMetricFamily(invalid, ivmfs)
+
+		vmfs, ivmfs = statusAnnotationsRecommendationMetricFamily(v)
+		mergeMetricFamily(valid, vmfs)
+		mergeMetricFamily(invalid, ivmfs)
 	}
 
 	return
@@ -552,11 +596,35 @@ func testRunVPA(t *testing.T, modifierFunc func(f *fixture) (valid map[string]*d
 
 func TestRunValidVPA(t *testing.T) {
 	const name = "v"
+
+	gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{
+		Recommendation: &vpa.RecommendedPodResources{
+			ContainerRecommendations: []vpa.RecommendedContainerResources{
+				vpa.RecommendedContainerResources{
+					ContainerName:  name,
+					LowerBound:     getResources("100m", "100Mi"),
+					Target:         getResources("150m", "150Mi"),
+					UpperBound:     getResources("200m", "200Mi"),
+					UncappedTarget: getResources("300m", "300Mi"),
+				},
+			},
+		},
+	}
+
+	gardenerVPAStatusJSON, err := json.Marshal(gardenerVPAStatus)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	v := &vpa.VerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "valid",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 		Spec: vpa.VerticalPodAutoscalerSpec{
 			TargetRef: &autoscaling.CrossVersionObjectReference{
@@ -596,11 +664,35 @@ func TestRunValidVPA(t *testing.T) {
 
 func TestRunInvalidVPA(t *testing.T) {
 	const name = "v"
+
+	gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{
+		Recommendation: &vpa.RecommendedPodResources{
+			ContainerRecommendations: []vpa.RecommendedContainerResources{
+				vpa.RecommendedContainerResources{
+					ContainerName:  name,
+					LowerBound:     getResources("100m", "100Mi"),
+					Target:         getResources("150m", "150Mi"),
+					UpperBound:     getResources("200m", "200Mi"),
+					UncappedTarget: getResources("300m", "300Mi"),
+				},
+			},
+		},
+	}
+
+	gardenerVPAStatusJSON, err := json.Marshal(gardenerVPAStatus)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	empty := &vpa.VerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "empty",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 	}
 	noContainers := &vpa.VerticalPodAutoscaler{
@@ -608,6 +700,9 @@ func TestRunInvalidVPA(t *testing.T) {
 			Name:       "noContainers",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 		Spec: vpa.VerticalPodAutoscalerSpec{
 			ResourcePolicy: &vpa.PodResourcePolicy{},
@@ -621,8 +716,12 @@ func TestRunInvalidVPA(t *testing.T) {
 			Name:       "noContainersWithTargetRef",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 		Spec: vpa.VerticalPodAutoscalerSpec{
+			UpdatePolicy: podUpdatePolicy(vpa.UpdateModeOff),
 			TargetRef: &autoscaling.CrossVersionObjectReference{
 				APIVersion: "apps/v1",
 				Kind:       "Deployment",
@@ -635,6 +734,9 @@ func TestRunInvalidVPA(t *testing.T) {
 			Name:       "noTargetRefWithContainers",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 		Spec: vpa.VerticalPodAutoscalerSpec{
 			UpdatePolicy: podUpdatePolicy(vpa.UpdateModeOff),
@@ -669,11 +771,35 @@ func TestRunInvalidVPA(t *testing.T) {
 
 func TestRunMutatingVPA(t *testing.T) {
 	const name = "v"
+
+	gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{
+		Recommendation: &vpa.RecommendedPodResources{
+			ContainerRecommendations: []vpa.RecommendedContainerResources{
+				vpa.RecommendedContainerResources{
+					ContainerName:  name,
+					LowerBound:     getResources("100m", "100Mi"),
+					Target:         getResources("150m", "150Mi"),
+					UpperBound:     getResources("200m", "200Mi"),
+					UncappedTarget: getResources("300m", "300Mi"),
+				},
+			},
+		},
+	}
+
+	gardenerVPAStatusJSON, err := json.Marshal(gardenerVPAStatus)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	v := &vpa.VerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "mutating",
 			Namespace:  name,
 			Generation: 1,
+			Annotations: map[string]string{
+				gardenerVPARecommendationAnnnotationKey: string(gardenerVPAStatusJSON),
+			},
 		},
 		Spec: vpa.VerticalPodAutoscalerSpec{
 			TargetRef: &autoscaling.CrossVersionObjectReference{
@@ -711,6 +837,28 @@ func TestRunMutatingVPA(t *testing.T) {
 	modifierFunc := func(f *fixture) (valid map[string]*dto.MetricFamily, invalid map[string]*dto.MetricFamily) {
 		vc := v.DeepCopy()
 		vc.ResourceVersion = time.Now().String()
+
+		gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{
+			Recommendation: &vpa.RecommendedPodResources{
+				ContainerRecommendations: []vpa.RecommendedContainerResources{
+					vpa.RecommendedContainerResources{
+						ContainerName:  name,
+						LowerBound:     getResources("101m", "101Mi"),
+						Target:         getResources("151m", "151Mi"),
+						UpperBound:     getResources("201m", "201Mi"),
+						UncappedTarget: getResources("301m", "301Mi"),
+					},
+				},
+			},
+		}
+
+		gardenerVPAStatusJSON, err1 := json.Marshal(gardenerVPAStatus)
+		if err1 != nil {
+			fmt.Println(err1)
+			return
+		}
+		vc.ObjectMeta.Annotations[gardenerVPARecommendationAnnnotationKey] = string(gardenerVPAStatusJSON)
+
 		vc.Status.Recommendation.ContainerRecommendations[0].LowerBound = getResources("101m", "101Mi")
 		vc.Status.Recommendation.ContainerRecommendations[0].Target = getResources("151m", "151Mi")
 		vc.Status.Recommendation.ContainerRecommendations[0].UpperBound = getResources("201m", "201Mi")
@@ -724,7 +872,9 @@ func TestRunMutatingVPA(t *testing.T) {
 
 		valid, invalid = computeExpectedMetricFamilies(vc)
 		oldStatusVMFS, _ := statusRecommendationMetricFamily(v)
+		oldAnnotationStatusVMFS, _ := statusAnnotationsRecommendationMetricFamily(v)
 		mergeMetricFamily(invalid, oldStatusVMFS)
+		mergeMetricFamily(invalid, oldAnnotationStatusVMFS)
 		return
 	}
 
