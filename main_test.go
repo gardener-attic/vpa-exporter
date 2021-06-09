@@ -309,9 +309,8 @@ func statusMetricFamilyHelper(metric string, getStatusFn func(vpa *vpa.VerticalP
 			Value: stringPtr((func() string {
 				if v.Spec.UpdatePolicy != nil && v.Spec.UpdatePolicy.UpdateMode != nil {
 					return string(*v.Spec.UpdatePolicy.UpdateMode)
-				} else {
-					return string(vpa.UpdateModeAuto)
 				}
+				return string(vpa.UpdateModeAuto)
 			})()),
 		}
 
@@ -395,7 +394,7 @@ func statusMetricFamilyHelper(metric string, getStatusFn func(vpa *vpa.VerticalP
 }
 
 func statusAnnotationsRecommendationMetricFamily(vs ...*vpa.VerticalPodAutoscaler) (valid *dto.MetricFamily, invalid *dto.MetricFamily) {
-	return statusMetricFamilyHelper(gardener_vpa, func(v *vpa.VerticalPodAutoscaler) *vpa.VerticalPodAutoscalerStatus {
+	return statusMetricFamilyHelper(gardenerVPA, func(v *vpa.VerticalPodAutoscaler) *vpa.VerticalPodAutoscalerStatus {
 		gardenerVPAStatus := &vpa.VerticalPodAutoscalerStatus{}
 		gardenerVPAStatusJSON, hasGardenerVPAStatusJSON := v.ObjectMeta.Annotations[gardenerVPARecommendationAnnnotationKey]
 		if hasGardenerVPAStatusJSON && gardenerVPAStatusJSON != "" {

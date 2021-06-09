@@ -59,7 +59,7 @@ const (
 	upperBoundRecommendation                = "upperBound"
 	uncappedTargetRecommendation            = "uncappedTarget"
 	vpaNamespace                            = "vpa"
-	gardener_vpa                            = "gardener_vpa"
+	gardenerVPA                             = "gardener_vpa"
 	gardenerVPARecommendationAnnnotationKey = "vpa-recommender.gardener.cloud/status"
 	subsystemMetadata                       = "metadata"
 	subsystemSpec                           = "spec"
@@ -112,7 +112,7 @@ var (
 
 	vpaGardenerRecommendation = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: gardener_vpa,
+			Namespace: gardenerVPA,
 			Subsystem: subsystemStatus,
 			Name:      "recommendation",
 			Help:      "The resource recommendation for a container by the gardener/vpa-recommender.",
