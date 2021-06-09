@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -41,28 +42,30 @@ import (
 )
 
 const (
-	labelName                        = "name"
-	labelNamespace                   = "namespace"
-	labelContainer                   = "container"
-	labelUpdatePolicy                = "updatePolicy"
-	labelContainerResourcePolicyMode = "containerResourcePolicyMode"
-	labelResource                    = "resource"
-	labelAllowed                     = "allowed"
-	labelRecommendation              = "recommendation"
-	labelConditionType               = "conditionType"
-	labelConditionReason             = "conditionReason"
-	minAllowed                       = "min"
-	maxAllowed                       = "max"
-	targetRecommendation             = "target"
-	lowerBoundRecommendation         = "lowerBound"
-	upperBoundRecommendation         = "upperBound"
-	uncappedTargetRecommendation     = "uncappedTarget"
-	vpaNamespace                     = "vpa"
-	subsystemMetadata                = "metadata"
-	subsystemSpec                    = "spec"
-	subsystemStatus                  = "status"
-	labelTargetRefName               = "targetName"
-	labelTargetRefKind               = "targetKind"
+	labelName                               = "name"
+	labelNamespace                          = "namespace"
+	labelContainer                          = "container"
+	labelUpdatePolicy                       = "updatePolicy"
+	labelContainerResourcePolicyMode        = "containerResourcePolicyMode"
+	labelResource                           = "resource"
+	labelAllowed                            = "allowed"
+	labelRecommendation                     = "recommendation"
+	labelConditionType                      = "conditionType"
+	labelConditionReason                    = "conditionReason"
+	minAllowed                              = "min"
+	maxAllowed                              = "max"
+	targetRecommendation                    = "target"
+	lowerBoundRecommendation                = "lowerBound"
+	upperBoundRecommendation                = "upperBound"
+	uncappedTargetRecommendation            = "uncappedTarget"
+	vpaNamespace                            = "vpa"
+	gardener_vpa                            = "gardener_vpa"
+	gardenerVPARecommendationAnnnotationKey = "vpa-recommender.gardener.cloud/status"
+	subsystemMetadata                       = "metadata"
+	subsystemSpec                           = "spec"
+	subsystemStatus                         = "status"
+	labelTargetRefName                      = "targetName"
+	labelTargetRefKind                      = "targetKind"
 )
 
 var (
@@ -106,12 +109,23 @@ var (
 		},
 		[]string{labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy, labelTargetRefName, labelTargetRefKind},
 	)
+
+	vpaGardenerRecommendation = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: gardener_vpa,
+			Subsystem: subsystemStatus,
+			Name:      "recommendation",
+			Help:      "The resource recommendation for a container by the gardener/vpa-recommender.",
+		},
+		[]string{labelName, labelNamespace, labelContainer, labelRecommendation, labelResource, labelUpdatePolicy, labelTargetRefName, labelTargetRefKind},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(vpaMetadataGeneration)
 	prometheus.MustRegister(vpaSpecContainerResourcePolicyAllowed)
 	prometheus.MustRegister(vpaStatusRecommendation)
+	prometheus.MustRegister(vpaGardenerRecommendation)
 }
 
 // Controller listens to add, update and deletion of VPA resources
@@ -296,6 +310,28 @@ func (c *Controller) enqueueVPA(obj interface{}) {
 	c.workqueue.AddRateLimited(key)
 }
 
+func addReco(containerName, recommendation, resource string, q resource.Quantity, metric *prometheus.GaugeVec, vpa *autoscaling.VerticalPodAutoscaler) {
+	labels := prometheus.Labels{
+		labelNamespace:      vpa.ObjectMeta.Namespace,
+		labelName:           vpa.ObjectMeta.Name,
+		labelContainer:      containerName,
+		labelRecommendation: recommendation,
+		labelResource:       resource,
+		labelTargetRefName:  vpa.Spec.TargetRef.Name,
+		labelTargetRefKind:  vpa.Spec.TargetRef.Kind,
+	}
+	if vpa.Spec.UpdatePolicy != nil && vpa.Spec.UpdatePolicy.UpdateMode != nil {
+		labels[labelUpdatePolicy] = string(*vpa.Spec.UpdatePolicy.UpdateMode)
+	}
+
+	// CPU metrics must be exposed as millicores
+	if resource == "cpu" {
+		metric.With(labels).Set(float64(q.MilliValue()))
+	} else {
+		metric.With(labels).Set(float64(q.Value()))
+	}
+}
+
 func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) error {
 	vpaMetadataGeneration.With(prometheus.Labels{
 		labelNamespace: vpa.ObjectMeta.Namespace,
@@ -336,40 +372,46 @@ func (c *Controller) updateVPAMetrics(vpa *autoscaling.VerticalPodAutoscaler) er
 	}
 
 	if vpa.Status.Recommendation != nil {
-		addReco := func(containerName, recommendation, resource string, q resource.Quantity) {
-			labels := prometheus.Labels{
-				labelNamespace:      vpa.ObjectMeta.Namespace,
-				labelName:           vpa.ObjectMeta.Name,
-				labelContainer:      containerName,
-				labelRecommendation: recommendation,
-				labelResource:       resource,
-				labelTargetRefName:  vpa.Spec.TargetRef.Name,
-				labelTargetRefKind:  vpa.Spec.TargetRef.Kind,
-			}
-			if vpa.Spec.UpdatePolicy != nil && vpa.Spec.UpdatePolicy.UpdateMode != nil {
-				labels[labelUpdatePolicy] = string(*vpa.Spec.UpdatePolicy.UpdateMode)
-			}
-
-			// CPU metrics must be exposed as millicores
-			if resource == "cpu" {
-				vpaStatusRecommendation.With(labels).Set(float64(q.MilliValue()))
-			} else {
-				vpaStatusRecommendation.With(labels).Set(float64(q.Value()))
-			}
-		}
 
 		for _, cr := range vpa.Status.Recommendation.ContainerRecommendations {
 			for k, q := range cr.Target {
-				addReco(cr.ContainerName, targetRecommendation, string(k), q)
+				addReco(cr.ContainerName, targetRecommendation, string(k), q, vpaStatusRecommendation, vpa)
 			}
 			for k, q := range cr.LowerBound {
-				addReco(cr.ContainerName, lowerBoundRecommendation, string(k), q)
+				addReco(cr.ContainerName, lowerBoundRecommendation, string(k), q, vpaStatusRecommendation, vpa)
 			}
 			for k, q := range cr.UpperBound {
-				addReco(cr.ContainerName, upperBoundRecommendation, string(k), q)
+				addReco(cr.ContainerName, upperBoundRecommendation, string(k), q, vpaStatusRecommendation, vpa)
 			}
 			for k, q := range cr.UncappedTarget {
-				addReco(cr.ContainerName, uncappedTargetRecommendation, string(k), q)
+				addReco(cr.ContainerName, uncappedTargetRecommendation, string(k), q, vpaStatusRecommendation, vpa)
+			}
+		}
+	}
+
+	gardenerVPAStatusJSON, hasGardenerVPAStatusJSON := vpa.ObjectMeta.Annotations[gardenerVPARecommendationAnnnotationKey]
+
+	if hasGardenerVPAStatusJSON && gardenerVPAStatusJSON != "" {
+
+		gardenerVPAStatus := &autoscaling.VerticalPodAutoscalerStatus{}
+		err := json.Unmarshal([]byte(gardenerVPAStatusJSON), gardenerVPAStatus)
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("error in unmarshalling gardenerVPAStatus"))
+			return nil
+		}
+
+		for _, cr := range gardenerVPAStatus.Recommendation.ContainerRecommendations {
+			for k, q := range cr.Target {
+				addReco(cr.ContainerName, targetRecommendation, string(k), q, vpaGardenerRecommendation, vpa)
+			}
+			for k, q := range cr.LowerBound {
+				addReco(cr.ContainerName, lowerBoundRecommendation, string(k), q, vpaGardenerRecommendation, vpa)
+			}
+			for k, q := range cr.UpperBound {
+				addReco(cr.ContainerName, upperBoundRecommendation, string(k), q, vpaGardenerRecommendation, vpa)
+			}
+			for k, q := range cr.UncappedTarget {
+				addReco(cr.ContainerName, uncappedTargetRecommendation, string(k), q, vpaGardenerRecommendation, vpa)
 			}
 		}
 	}
