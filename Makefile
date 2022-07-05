@@ -27,13 +27,8 @@ revendor:
 build: 
 	@.ci/build
 
-.PHONY: build-local
-build-local:
-	@env LOCAL_BUILD=1 .ci/build
-
 .PHONY: docker-image
 docker-image: 
-	@if [[ ! -f $(BIN_DIR)/linux-amd64/vpa-exporter ]]; then echo "No binary found. Please run 'make build'"; false; fi
 	@docker build -t $(IMAGE_REPOSITORY):$(IMAGE_TAG) -f $(BUILD_DIR)/Dockerfile --rm .
 
 .PHONY: docker-push
