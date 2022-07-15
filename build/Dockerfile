@@ -18,10 +18,8 @@ COPY . .
 
 RUN make build
 
-FROM alpine:3.10.3
+FROM gcr.io/distroless/static-debian11:nonroot
+COPY --from=builder /go/src/github.com/gardener/vpa-exporter/bin/vpa-exporter /vpa-exporter
 
-RUN apk add --update bash curl
-
-COPY --from=builder /go/src/github.com/gardener/vpa-exporter/bin/vpa-exporter /usr/local/bin/vpa-exporter
 WORKDIR /
-ENTRYPOINT ["/usr/local/bin/vpa-exporter"]
+ENTRYPOINT ["/vpa-exporter"]
