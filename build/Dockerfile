@@ -12,10 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+FROM golang:1.18 as builder
+WORKDIR /go/src/github.com/gardener/vpa-exporter
+COPY . .
+
+RUN make build
+
 FROM alpine:3.10.3
 
 RUN apk add --update bash curl
 
-COPY ./bin/linux-amd64/vpa-exporter /usr/local/bin/vpa-exporter
+COPY --from=builder /go/src/github.com/gardener/vpa-exporter/bin/vpa-exporter /usr/local/bin/vpa-exporter
 WORKDIR /
 ENTRYPOINT ["/usr/local/bin/vpa-exporter"]
