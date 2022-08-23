@@ -19,6 +19,7 @@ test/output
 test/e2e_test_data
 
 # IDE config
+.idea
 .vscode
 
 # developers workspace

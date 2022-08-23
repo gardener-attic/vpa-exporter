@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
+	autoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/typed/autoscaling.k8s.io/v1"
+	fakeautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/typed/autoscaling.k8s.io/v1/fake"
 	autoscalingv1beta1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/typed/autoscaling.k8s.io/v1beta1"
 	fakeautoscalingv1beta1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/typed/autoscaling.k8s.io/v1beta1/fake"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/typed/autoscaling.k8s.io/v1beta2"
@@ -45,7 +47,7 @@ func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 		}
 	}
 
-	cs := &Clientset{}
+	cs := &Clientset{tracker: o}
 	cs.discovery = &fakediscovery.FakeDiscovery{Fake: &cs.Fake}
 	cs.AddReactor("*", "*", testing.ObjectReaction(o))
 	cs.AddWatchReactor("*", func(action testing.Action) (handled bool, ret watch.Interface, err error) {
@@ -67,13 +69,23 @@ func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 type Clientset struct {
 	testing.Fake
 	discovery *fakediscovery.FakeDiscovery
+	tracker   testing.ObjectTracker
 }
 
 func (c *Clientset) Discovery() discovery.DiscoveryInterface {
 	return c.discovery
 }
 
+func (c *Clientset) Tracker() testing.ObjectTracker {
+	return c.tracker
+}
+
 var _ clientset.Interface = &Clientset{}
+
+// AutoscalingV1 retrieves the AutoscalingV1Client
+func (c *Clientset) AutoscalingV1() autoscalingv1.AutoscalingV1Interface {
+	return &fakeautoscalingv1.FakeAutoscalingV1{Fake: &c.Fake}
+}
 
 // AutoscalingV1beta2 retrieves the AutoscalingV1beta2Client
 func (c *Clientset) AutoscalingV1beta2() autoscalingv1beta2.AutoscalingV1beta2Interface {
@@ -85,17 +97,7 @@ func (c *Clientset) AutoscalingV1beta1() autoscalingv1beta1.AutoscalingV1beta1In
 	return &fakeautoscalingv1beta1.FakeAutoscalingV1beta1{Fake: &c.Fake}
 }
 
-// Autoscaling retrieves the AutoscalingV1beta1Client
-func (c *Clientset) Autoscaling() autoscalingv1beta1.AutoscalingV1beta1Interface {
-	return &fakeautoscalingv1beta1.FakeAutoscalingV1beta1{Fake: &c.Fake}
-}
-
 // PocV1alpha1 retrieves the PocV1alpha1Client
 func (c *Clientset) PocV1alpha1() pocv1alpha1.PocV1alpha1Interface {
-	return &fakepocv1alpha1.FakePocV1alpha1{Fake: &c.Fake}
-}
-
-// Poc retrieves the PocV1alpha1Client
-func (c *Clientset) Poc() pocv1alpha1.PocV1alpha1Interface {
 	return &fakepocv1alpha1.FakePocV1alpha1{Fake: &c.Fake}
 }

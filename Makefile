@@ -19,9 +19,13 @@ IMAGE_TAG           := $(VERSION)
 BUILD_DIR           := build
 BIN_DIR             := bin
 
+TOOLS_DIR := hack/tools
+include hack/tools.mk
+
 .PHONY: revendor
 revendor:
-	@dep ensure -update -v
+	@GO111MODULE=on go mod tidy
+	@GO111MODULE=on go mod vendor
 
 .PHONY: build
 build: 
@@ -41,11 +45,13 @@ clean:
 	@rm -rf $(BIN_DIR)/
 
 .PHONY: check
-check:
-	@.ci/check
+check: $(GOLANGCI_LINT)
+	@go vet ./cmd/...
+	@go fmt ./cmd/...
+	@hack/check.sh --golangci-lint-config=./.golangci.yaml ./cmd/...
 
 .PHONY: test
-test:
+test: $(GINKGO)
 	@.ci/test
 
 .PHONY: verify

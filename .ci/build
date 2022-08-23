@@ -61,4 +61,4 @@ GIT_SHA=$(git rev-parse --short HEAD || echo "GitNotFound")
 CGO_ENABLED=0 GO111MODULE=off go build \
   -v \
   -o ${BINARY_PATH}/vpa-exporter \
-  main.go
+  cmd/main.go
