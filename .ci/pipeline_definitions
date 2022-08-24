@@ -24,9 +24,9 @@ vpa-exporter:
                 build: ~
     steps:
       check:
-        image: 'golang:1.12.0'
+        image: 'golang:1.18.5'
       build:
-        image: 'golang:1.12.0'
+        image: 'golang:1.18.5'
         output_dir: 'binary'
 
   jobs:
