@@ -1,3 +1,8 @@
+# ---DEPRECATED---
+
+**This project is deprecated and won't be updated anymore.
+It is no longer used in the Gardener project, the vpa related metrics are exposed by the kube-state-metrics component.**
+
 # vpa-exporter
 Vertical pod autoscaler ([VPA](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler)) frees up users from having to update the resource requests for containers in the pods. It sets the requests based on usage. This enables proper scheduling by ensuring that appropriate resource amount is available for each pod.
 
